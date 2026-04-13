@@ -10,15 +10,32 @@ from config import TOKEN
 from app.handlers import router
 from app.database.models import async_main
 
+# =====================
+# НАСТРОЙКИ
+# =====================
+
 WEBHOOK_PATH = "/webhook"
-WEBHOOK_URL = os.getenv("RENDER_EXTERNAL_URL") + WEBHOOK_PATH
+
+BASE_URL = os.getenv("RENDER_EXTERNAL_URL")
+if not BASE_URL:
+    raise ValueError("RENDER_EXTERNAL_URL не найден")
+
+WEBHOOK_URL = BASE_URL + WEBHOOK_PATH
 PORT = int(os.getenv("PORT", 10000))
+
+# =====================
+# БОТ
+# =====================
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 dp.include_router(router)
 
+# =====================
+# HANDLERS
+# =====================
 
+# 🔥 webhook
 async def handle_webhook(request):
     try:
         data = await request.json()
@@ -29,29 +46,46 @@ async def handle_webhook(request):
         return web.Response(text="OK")
 
     except Exception as e:
-        print("WEBHOOK ERROR:", e)
+        print("❌ WEBHOOK ERROR:", e)
         return web.Response(status=500)
 
 
-async def on_startup():
+# 🔥 health check (для Render)
+async def health(request):
+    return web.Response(text="OK")
+
+
+# =====================
+# LIFECYCLE
+# =====================
+
+async def on_startup(app):
     await async_main()
+
+    # ставим webhook
     await bot.set_webhook(WEBHOOK_URL)
     print(f"🚀 Webhook установлен: {WEBHOOK_URL}")
 
 
-async def on_shutdown():
+async def on_shutdown(app):
     await bot.delete_webhook()
     print("❌ Webhook удалён")
 
 
+# =====================
+# СЕРВЕР
+# =====================
+
 async def start_webhook():
     app = web.Application()
 
+    # маршруты
+    app.router.add_get("/", health)
     app.router.add_post(WEBHOOK_PATH, handle_webhook)
 
-    # 🔥 ВАЖНО — lifecycle
-    app.on_startup.append(lambda app: on_startup())
-    app.on_shutdown.append(lambda app: on_shutdown())
+    # lifecycle
+    app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
 
     runner = web.AppRunner(app)
     await runner.setup()
@@ -61,10 +95,29 @@ async def start_webhook():
 
     print(f"🌐 Сервер запущен на порту {PORT}")
 
+    # держим сервер живым
     while True:
         await asyncio.sleep(3600)
 
 
+# =====================
+# АНТИ-КРАШ
+# =====================
+
+async def main():
+    while True:
+        try:
+            await start_webhook()
+        except Exception as e:
+            print("🔥 CRASH:", e)
+            print("⏳ Перезапуск через 5 секунд...")
+            await asyncio.sleep(5)
+
+
+# =====================
+# START
+# =====================
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(start_webhook())
+    asyncio.run(main())
