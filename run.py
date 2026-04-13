@@ -2,57 +2,61 @@ import asyncio
 import logging
 import os
 
-from aiogram import Bot, Dispatcher
 from aiohttp import web
+from aiogram import Bot, Dispatcher
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
 from config import TOKEN
 from app.handlers import router
 from app.database.models import async_main
 
+# 🔧 настройки
+WEBHOOK_PATH = "/webhook"
+WEBHOOK_SECRET = "supersecret"  # можешь оставить
+BASE_URL = os.getenv("RENDER_EXTERNAL_URL")  # Render сам даст URL
+WEBHOOK_URL = f"{BASE_URL}{WEBHOOK_PATH}"
 
-# ------------------ БОТ ------------------
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 
-# ------------------ ВЕБ-СЕРВЕР (анти-сон) ------------------
-async def handle(request):
-    return web.Response(text="Бот работает ✅")
-
-
-async def start_web_server():
-    app = web.Application()
-    app.router.add_get("/", handle)
-
-    port = int(os.environ.get("PORT", 10000))  # Render требует PORT
-
-    runner = web.AppRunner(app)
-    await runner.setup()
-
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-
-    print(f"🌐 Web server started on port {port}")
-
-
-# ------------------ MAIN ------------------
-async def main():
-    await async_main()  # создаём БД
-
+async def on_startup(app):
+    await async_main()
     dp.include_router(router)
 
-    # 🔥 запускаем веб-сервер (анти-сон)
-    await start_web_server()
+    # ставим webhook
+    await bot.set_webhook(
+        WEBHOOK_URL,
+        secret_token=WEBHOOK_SECRET
+    )
+    print("Webhook set:", WEBHOOK_URL)
 
-    # 🔥 запускаем бота
-    await dp.start_polling(bot)
+
+async def on_shutdown(app):
+    await bot.delete_webhook()
+    print("Webhook deleted")
 
 
-# ------------------ ЗАПУСК ------------------
-if __name__ == '__main__':
+def main():
     logging.basicConfig(level=logging.INFO)
 
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("Бот остановлен ❌")
+    app = web.Application()
+
+    # регистрируем webhook handler
+    SimpleRequestHandler(
+        dispatcher=dp,
+        bot=bot,
+        secret_token=WEBHOOK_SECRET
+    ).register(app, path=WEBHOOK_PATH)
+
+    setup_application(app, dp, bot=bot)
+
+    app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
+
+    port = int(os.environ.get("PORT", 10000))
+    web.run_app(app, host="0.0.0.0", port=port)
+
+
+if __name__ == "__main__":
+    main()

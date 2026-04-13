@@ -1,1 +1,3 @@
-TOKEN = "8180862082:AAF7F2LRKwuzPHLXCEW90QJtRRRly8PNjyM"
+import os
+
+TOKEN = os.getenv("TOKEN")
