@@ -10,31 +10,18 @@ from config import TOKEN
 from app.handlers import router
 from app.database.models import async_main
 
-# =====================
-# НАСТРОЙКИ
-# =====================
-
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_URL = os.getenv("RENDER_EXTERNAL_URL") + WEBHOOK_PATH
 PORT = int(os.getenv("PORT", 10000))
-
-# =====================
-# БОТ
-# =====================
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 dp.include_router(router)
 
-# =====================
-# WEBHOOK HANDLER
-# =====================
 
 async def handle_webhook(request):
     try:
         data = await request.json()
-
-        # 🔥 ВАЖНО: правильное преобразование
         update = Update.model_validate(data)
 
         await dp.feed_update(bot=bot, update=update)
@@ -45,18 +32,26 @@ async def handle_webhook(request):
         print("WEBHOOK ERROR:", e)
         return web.Response(status=500)
 
-# =====================
-# ЗАПУСК СЕРВЕРА
-# =====================
+
+async def on_startup():
+    await async_main()
+    await bot.set_webhook(WEBHOOK_URL)
+    print(f"🚀 Webhook установлен: {WEBHOOK_URL}")
+
+
+async def on_shutdown():
+    await bot.delete_webhook()
+    print("❌ Webhook удалён")
+
 
 async def start_webhook():
-    await async_main()
-
-    # ставим webhook
-    await bot.set_webhook(WEBHOOK_URL)
-
     app = web.Application()
+
     app.router.add_post(WEBHOOK_PATH, handle_webhook)
+
+    # 🔥 ВАЖНО — lifecycle
+    app.on_startup.append(lambda app: on_startup())
+    app.on_shutdown.append(lambda app: on_shutdown())
 
     runner = web.AppRunner(app)
     await runner.setup()
@@ -64,14 +59,11 @@ async def start_webhook():
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
 
-    print(f"🚀 Webhook запущен: {WEBHOOK_URL}")
+    print(f"🌐 Сервер запущен на порту {PORT}")
 
     while True:
         await asyncio.sleep(3600)
 
-# =====================
-# MAIN
-# =====================
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

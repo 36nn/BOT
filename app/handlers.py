@@ -47,9 +47,26 @@ async def get_name(msg: Message, state: FSMContext):
 
 @router.message(CreateWorkout.exercises_count)
 async def get_count(msg: Message, state: FSMContext):
+    # 🔒 Проверка: ввели ли число
+    if not msg.text.isdigit():
+        await msg.answer("❌ Введи число (например: 3)")
+        return
+
     count = int(msg.text)
 
+    # 🔒 Проверка диапазона
+    if count <= 0 or count > 50:
+        await msg.answer("❌ Введи число от 1 до 50")
+        return
+
     data = await state.get_data()
+
+    # 🔒 Доп защита (если вдруг state пустой)
+    if "name" not in data:
+        await msg.answer("❌ Ошибка. Начни заново", reply_markup=main_kb)
+        await state.clear()
+        return
+
     workout_id = await rq.create_workout(msg.from_user.id, data["name"])
 
     await state.update_data(
@@ -58,7 +75,7 @@ async def get_count(msg: Message, state: FSMContext):
         current=1
     )
 
-    await msg.answer(f"Введи упражнение 1")
+    await msg.answer("Введи упражнение 1")
     await state.set_state(CreateWorkout.exercise_name)
 
 
