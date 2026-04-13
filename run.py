@@ -2,58 +2,77 @@ import asyncio
 import logging
 import os
 
-from aiogram import Bot, Dispatcher
 from aiohttp import web
+from aiogram import Bot, Dispatcher
+from aiogram.types import Update
 
 from config import TOKEN
 from app.handlers import router
 from app.database.models import async_main
 
-# ===== НАСТРОЙКИ =====
+# =====================
+# НАСТРОЙКИ
+# =====================
+
 WEBHOOK_PATH = "/webhook"
-WEBHOOK_SECRET = "supersecret"  # любое слово
-BASE_URL = os.getenv("RENDER_EXTERNAL_URL")  # Render сам подставляет
-WEBHOOK_URL = f"{BASE_URL}{WEBHOOK_PATH}"
+WEBHOOK_URL = os.getenv("RENDER_EXTERNAL_URL") + WEBHOOK_PATH
+PORT = int(os.getenv("PORT", 10000))
+
+# =====================
+# БОТ
+# =====================
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
+dp.include_router(router)
 
-# ===== WEBHOOK HANDLER =====
+# =====================
+# WEBHOOK HANDLER
+# =====================
+
 async def handle_webhook(request):
-    if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != WEBHOOK_SECRET:
-        return web.Response(status=403)
+    try:
+        data = await request.json()
 
-    data = await request.json()
-    await dp.feed_update(bot=bot, update=data)
-    return web.Response()
+        # 🔥 ВАЖНО: правильное преобразование
+        update = Update.model_validate(data)
 
-# ===== STARTUP =====
-async def on_startup(app):
+        await dp.feed_update(bot=bot, update=update)
+
+        return web.Response(text="OK")
+
+    except Exception as e:
+        print("WEBHOOK ERROR:", e)
+        return web.Response(status=500)
+
+# =====================
+# ЗАПУСК СЕРВЕРА
+# =====================
+
+async def start_webhook():
     await async_main()
-    dp.include_router(router)
 
-    await bot.set_webhook(
-        WEBHOOK_URL,
-        secret_token=WEBHOOK_SECRET
-    )
+    # ставим webhook
+    await bot.set_webhook(WEBHOOK_URL)
 
-# ===== SHUTDOWN =====
-async def on_shutdown(app):
-    await bot.delete_webhook()
-
-# ===== APP =====
-def create_app():
     app = web.Application()
     app.router.add_post(WEBHOOK_PATH, handle_webhook)
 
-    app.on_startup.append(on_startup)
-    app.on_shutdown.append(on_shutdown)
+    runner = web.AppRunner(app)
+    await runner.setup()
 
-    return app
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
 
-# ===== RUN =====
+    print(f"🚀 Webhook запущен: {WEBHOOK_URL}")
+
+    while True:
+        await asyncio.sleep(3600)
+
+# =====================
+# MAIN
+# =====================
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-
-    app = create_app()
-    web.run_app(app, port=int(os.environ.get("PORT", 10000)))
+    asyncio.run(start_webhook())
