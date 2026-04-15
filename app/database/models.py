@@ -10,6 +10,15 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
+    raise ValueError("❌ DATABASE_URL не найден")
+
+# 🔥 КРИТИЧЕСКИЙ ФИКС
+DATABASE_URL = DATABASE_URL.replace(
+    "postgresql://",
+    "postgresql+asyncpg://"
+)
+
+if not DATABASE_URL:
     raise ValueError("❌ DATABASE_URL не найден! Проверь Environment в Render")
 
 # фикс для Render (postgres → asyncpg)
