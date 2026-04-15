@@ -2,3 +2,4 @@ aiogram
 aiohttp
 sqlalchemy
 aiosqlite
+asyncpg
